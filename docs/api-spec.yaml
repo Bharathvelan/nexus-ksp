@@ -1,0 +1,48 @@
+openapi: 3.1.0
+info:
+  title: NEXUS-KSP API
+  version: 1.0.0
+  description: API specifications for all NEXUS-KSP microservices.
+servers:
+  - url: http://localhost:8000/api/v1
+paths:
+  /query:
+    post:
+      summary: Natural Language Query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                session_id:
+                  type: string
+                language:
+                  type: string
+      responses:
+        '200':
+          description: AI Synthesized Answer
+  /network/analyze:
+    post:
+      summary: Get ego network for accused
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accused_id:
+                  type: string
+      responses:
+        '200':
+          description: Network JSON
+  /patterns/hotspot:
+    post:
+      summary: Get hotspot predictions
+  /profile/offender:
+    post:
+      summary: Get offender profile

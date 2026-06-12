@@ -1,0 +1,108 @@
+###############################################################################
+# Qdrant StatefulSet (2 Replicas)
+###############################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-headless
+  namespace: nexus-ksp
+  labels:
+    app: qdrant
+spec:
+  clusterIP: None
+  ports:
+    - port: 6333
+      name: http
+    - port: 6334
+      name: grpc
+    - port: 6335
+      name: internal
+  selector:
+    app: qdrant
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: nexus-ksp
+  labels:
+    app: qdrant
+spec:
+  serviceName: qdrant-headless
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: qdrant
+              topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - data
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: data
+          effect: NoSchedule
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.8.2
+          ports:
+            - containerPort: 6333
+              name: http
+            - containerPort: 6334
+              name: grpc
+            - containerPort: 6335
+              name: internal
+          env:
+            - name: QDRANT__CLUSTER__ENABLED
+              value: "true"
+            - name: QDRANT__CLUSTER__P2P__PORT
+              value: "6335"
+            - name: QDRANT__CLUSTER__CONSENSUS__TICK_PERIOD_MS
+              value: "100"
+            - name: QDRANT__STORAGE__STORAGE_PATH
+              value: "/qdrant/storage"
+          command:
+            - bash
+            - -c
+            - |
+              if [[ $HOSTNAME == "qdrant-0" ]]; then
+                ./qdrant
+              else
+                ./qdrant --uri 'http://qdrant-0.qdrant-headless:6335'
+              fi
+          volumeMounts:
+            - name: qdrant-data
+              mountPath: /qdrant/storage
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 4Gi
+            limits:
+              cpu: 2000m
+              memory: 8Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: qdrant-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: "ebs-sc"
+        resources:
+          requests:
+            storage: 200Gi

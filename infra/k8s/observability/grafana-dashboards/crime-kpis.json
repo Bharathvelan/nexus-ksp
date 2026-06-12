@@ -1,0 +1,51 @@
+{
+  "title": "Crime Intelligence KPIs",
+  "tags": ["nexus-ksp", "business"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Active Cases Being Queried",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(nexus_active_cases_queried_total[1h]))",
+          "legendFormat": "Active Cases"
+        }
+      ]
+    },
+    {
+      "title": "Top Queried Districts",
+      "type": "barchart",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "topk(5, sum(rate(nexus_district_queries_total[1d])) by (district))",
+          "legendFormat": "{{district}}"
+        }
+      ]
+    },
+    {
+      "title": "Alerts Fired Today",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(nexus_alerts_fired_total[24h]))",
+          "legendFormat": "Alerts Today"
+        }
+      ]
+    },
+    {
+      "title": "Forecasting Model Accuracy (Predicted vs Actual)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "avg(nexus_forecast_accuracy_ratio)",
+          "legendFormat": "Accuracy Ratio"
+        }
+      ]
+    }
+  ]
+}

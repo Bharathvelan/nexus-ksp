@@ -1,0 +1,18 @@
+{
+  "name": "nexus-postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "postgres",
+    "database.password": "nexus_secure_pass",
+    "database.dbname": "nexus_ksp",
+    "database.server.name": "nexus",
+    "plugin.name": "pgoutput",
+    "table.include.list": "nexus.fir,nexus.accused,nexus.fir_accused",
+    "topic.prefix": "nexus",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter"
+  }
+}

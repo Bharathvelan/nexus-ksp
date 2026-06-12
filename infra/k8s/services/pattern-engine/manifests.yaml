@@ -1,0 +1,236 @@
+###############################################################################
+# pattern-engine — All Manifests (AI service)
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pattern-engine
+  namespace: nexus-ksp
+  labels:
+    app: pattern-engine
+    role: backend-service
+    tier: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pattern-engine
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: pattern-engine
+        role: backend-service
+        tier: ai
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8003"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: pattern-engine-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: pattern-engine
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: pattern-engine
+              topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload-type
+                    operator: In
+                    values:
+                      - ai-inference
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: ai-inference
+          effect: NoSchedule
+      containers:
+        - name: pattern-engine
+          image: "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/nexus-ksp/pattern-engine:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8003
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8003
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8003
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          envFrom:
+            - configMapRef:
+                name: pattern-engine-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shared-db-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shared-cache-secrets
+                  key: redis-url
+            - name: KAFKA_BROKER
+              valueFrom:
+                secretKeyRef:
+                  name: shared-kafka-secrets
+                  key: bootstrap-brokers
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pattern-engine
+  namespace: nexus-ksp
+  labels:
+    app: pattern-engine
+spec:
+  type: ClusterIP
+  selector:
+    app: pattern-engine
+  ports:
+    - name: http
+      port: 8003
+      targetPort: 8003
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pattern-engine-hpa
+  namespace: nexus-ksp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pattern-engine
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pattern-engine-config
+  namespace: nexus-ksp
+data:
+  PORT: "8003"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
+  OTEL_SERVICE_NAME: "pattern-engine"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector.monitoring:4317"
+  KAFKA_TOPIC_ALERTS: "nexus-alerts"
+  KAFKA_TOPIC_PATTERNS: "nexus-patterns"
+  KAFKA_CONSUMER_GROUP: "pattern-engine-group"
+  FORECAST_HORIZON_DAYS: "30"
+  ANOMALY_THRESHOLD: "0.85"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pattern-engine-sa
+  namespace: nexus-ksp
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/nexus-ksp-pattern-engine-role"
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: pattern-engine-secrets
+  namespace: nexus-ksp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  target:
+    name: pattern-engine-secrets
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: model-signing-key
+      remoteRef:
+        key: nexus-ksp/production/pattern-engine
+        property: model_signing_key
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pattern-engine-pdb
+  namespace: nexus-ksp
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pattern-engine

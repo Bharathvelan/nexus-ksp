@@ -1,0 +1,213 @@
+###############################################################################
+# audit-logger — All Manifests
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-logger
+  namespace: nexus-ksp
+  labels:
+    app: audit-logger
+    role: backend-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: audit-logger
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: audit-logger
+        role: backend-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8006"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: audit-logger-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: audit-logger
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: audit-logger
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: audit-logger
+          image: "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/nexus-ksp/audit-logger:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8006
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8006
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8006
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          envFrom:
+            - configMapRef:
+                name: audit-logger-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shared-db-secrets
+                  key: database-url
+            - name: KAFKA_BROKER
+              valueFrom:
+                secretKeyRef:
+                  name: shared-kafka-secrets
+                  key: bootstrap-brokers
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-logger
+  namespace: nexus-ksp
+  labels:
+    app: audit-logger
+spec:
+  type: ClusterIP
+  selector:
+    app: audit-logger
+  ports:
+    - name: http
+      port: 8006
+      targetPort: 8006
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: audit-logger-hpa
+  namespace: nexus-ksp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: audit-logger
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: audit-logger-config
+  namespace: nexus-ksp
+data:
+  PORT: "8006"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
+  OTEL_SERVICE_NAME: "audit-logger"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector.monitoring:4317"
+  KAFKA_TOPIC_AUDIT: "nexus-audit"
+  KAFKA_CONSUMER_GROUP: "audit-logger-group"
+  ARCHIVE_S3_BUCKET: "nexus-ksp-audit-archive"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: audit-logger-sa
+  namespace: nexus-ksp
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/nexus-ksp-audit-logger-role"
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: audit-logger-secrets
+  namespace: nexus-ksp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  target:
+    name: audit-logger-secrets
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: encryption-key
+      remoteRef:
+        key: nexus-ksp/production/shared
+        property: encryption_key
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: audit-logger-pdb
+  namespace: nexus-ksp
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: audit-logger

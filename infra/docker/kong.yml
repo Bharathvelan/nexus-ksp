@@ -1,0 +1,59 @@
+_format_version: "2.1"
+_transform: true
+
+services:
+  - name: llm-orchestrator
+    url: http://llm-orchestrator:8001
+    routes:
+      - name: query-route
+        paths:
+          - /api/v1/query
+  - name: graph-service
+    url: http://graph-service:8002
+    routes:
+      - name: graph-route
+        paths:
+          - /api/v1/network
+  - name: pattern-engine
+    url: http://pattern-engine:8003
+    routes:
+      - name: pattern-route
+        paths:
+          - /api/v1/patterns
+  - name: profiling-service
+    url: http://profiling-service:8004
+    routes:
+      - name: profile-route
+        paths:
+          - /api/v1/profile
+
+plugins:
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+  - name: cors
+    config:
+      origins:
+        - http://localhost:3000
+      methods:
+        - GET
+        - POST
+        - OPTIONS
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - Authorization
+      exposed_headers:
+        - Authorization
+      credentials: true
+      max_age: 3600
+  - name: jwt
+    config:
+      claims_to_verify:
+        - exp
+      key_claim_name: kid

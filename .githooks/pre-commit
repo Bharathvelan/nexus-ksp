@@ -1,0 +1,15 @@
+#!/bin/sh
+# git-secrets pre-commit hook
+
+# Check if git-secrets is installed
+if ! command -v git-secrets >/dev/null 2>&1; then
+  echo "Warning: git-secrets not found in PATH."
+  echo "Please install git-secrets to enable secrets scanning before commit."
+  exit 0
+fi
+
+# Run git-secrets to scan the commit
+git secrets --pre_commit_hook -- "$@"
+
+# If it exits with 0, everything is fine.
+# If it exits with 1, it will prevent the commit because secrets were found.

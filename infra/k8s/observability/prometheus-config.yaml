@@ -1,0 +1,79 @@
+###############################################################################
+# Prometheus ServiceMonitors & Scrape Configs
+###############################################################################
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fastapi-services
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchExpressions:
+      - key: role
+        operator: In
+        values:
+          - backend-service
+  namespaceSelector:
+    matchNames:
+      - nexus-ksp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: web-frontend
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: web
+  namespaceSelector:
+    matchNames:
+      - nexus-ksp
+  endpoints:
+    - port: http
+      path: /api/metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: neo4j
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: neo4j
+  namespaceSelector:
+    matchNames:
+      - nexus-ksp
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-additional-scrape-configs
+  namespace: monitoring
+data:
+  prometheus-additional.yaml: |
+    - job_name: 'postgres_exporter'
+      static_configs:
+        - targets: ['postgres-exporter.monitoring.svc.cluster.local:9187']
+    - job_name: 'redis_exporter'
+      static_configs:
+        - targets: ['redis-exporter.monitoring.svc.cluster.local:9121']
+    - job_name: 'kafka_exporter'
+      static_configs:
+        - targets: ['kafka-exporter.monitoring.svc.cluster.local:9308']

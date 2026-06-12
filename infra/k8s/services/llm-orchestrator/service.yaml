@@ -1,0 +1,19 @@
+###############################################################################
+# llm-orchestrator — Service
+###############################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-orchestrator
+  namespace: nexus-ksp
+  labels:
+    app: llm-orchestrator
+spec:
+  type: ClusterIP
+  selector:
+    app: llm-orchestrator
+  ports:
+    - name: http
+      port: 8001
+      targetPort: 8001
+      protocol: TCP

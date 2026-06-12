@@ -1,0 +1,213 @@
+###############################################################################
+# profiling-service — All Manifests
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: profiling-service
+  namespace: nexus-ksp
+  labels:
+    app: profiling-service
+    role: backend-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: profiling-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: profiling-service
+        role: backend-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8004"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: profiling-service-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: profiling-service
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: profiling-service
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: profiling-service
+          image: "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/nexus-ksp/profiling-service:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8004
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8004
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8004
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          envFrom:
+            - configMapRef:
+                name: profiling-service-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shared-db-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: shared-cache-secrets
+                  key: redis-url
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: profiling-service
+  namespace: nexus-ksp
+  labels:
+    app: profiling-service
+spec:
+  type: ClusterIP
+  selector:
+    app: profiling-service
+  ports:
+    - name: http
+      port: 8004
+      targetPort: 8004
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: profiling-service-hpa
+  namespace: nexus-ksp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: profiling-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: profiling-service-config
+  namespace: nexus-ksp
+data:
+  PORT: "8004"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
+  OTEL_SERVICE_NAME: "profiling-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector.monitoring:4317"
+  BIOMETRIC_CONFIDENCE_THRESHOLD: "0.90"
+  FACE_RECOGNITION_MODEL: "retinaface"
+  MAX_PROFILE_CACHE_SIZE: "10000"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: profiling-service-sa
+  namespace: nexus-ksp
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/nexus-ksp-profiling-service-role"
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: profiling-service-secrets
+  namespace: nexus-ksp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  target:
+    name: profiling-service-secrets
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: encryption-key
+      remoteRef:
+        key: nexus-ksp/production/shared
+        property: encryption_key
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: profiling-service-pdb
+  namespace: nexus-ksp
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: profiling-service

@@ -1,0 +1,14 @@
+{
+  "name": "report-exporter",
+  "version": "1.0.0",
+  "description": "NEXUS-KSP Report Exporter",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "puppeteer": "^22.9.0",
+    "dotenv": "^16.4.5"
+  }
+}

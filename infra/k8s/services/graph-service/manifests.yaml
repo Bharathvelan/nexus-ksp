@@ -1,0 +1,239 @@
+###############################################################################
+# graph-service — All Manifests
+###############################################################################
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-service
+  namespace: nexus-ksp
+  labels:
+    app: graph-service
+    role: backend-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: graph-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: graph-service
+        role: backend-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8002"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: graph-service-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: graph-service
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: graph-service
+              topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - data
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: data
+          effect: NoSchedule
+      containers:
+        - name: graph-service
+          image: "${AWS_ACCOUNT_ID}.dkr.ecr.ap-south-1.amazonaws.com/nexus-ksp/graph-service:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8002
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8002
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8002
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          envFrom:
+            - configMapRef:
+                name: graph-service-config
+          env:
+            - name: NEO4J_URI
+              valueFrom:
+                secretKeyRef:
+                  name: graph-service-secrets
+                  key: neo4j-uri
+            - name: NEO4J_USER
+              valueFrom:
+                secretKeyRef:
+                  name: graph-service-secrets
+                  key: neo4j-user
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: graph-service-secrets
+                  key: neo4j-password
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graph-service
+  namespace: nexus-ksp
+  labels:
+    app: graph-service
+spec:
+  type: ClusterIP
+  selector:
+    app: graph-service
+  ports:
+    - name: http
+      port: 8002
+      targetPort: 8002
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graph-service-hpa
+  namespace: nexus-ksp
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: graph-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graph-service-config
+  namespace: nexus-ksp
+data:
+  PORT: "8002"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
+  OTEL_SERVICE_NAME: "graph-service"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger-collector.monitoring:4317"
+  NEO4J_DATABASE: "neo4j"
+  MAX_POOL_SIZE: "50"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: graph-service-sa
+  namespace: nexus-ksp
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/nexus-ksp-graph-service-role"
+---
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: graph-service-secrets
+  namespace: nexus-ksp
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: aws-secrets-manager
+    kind: ClusterSecretStore
+  target:
+    name: graph-service-secrets
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: neo4j-uri
+      remoteRef:
+        key: nexus-ksp/production/graph-service
+        property: neo4j_uri
+    - secretKey: neo4j-user
+      remoteRef:
+        key: nexus-ksp/production/graph-service
+        property: neo4j_user
+    - secretKey: neo4j-password
+      remoteRef:
+        key: nexus-ksp/production/graph-service
+        property: neo4j_password
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graph-service-pdb
+  namespace: nexus-ksp
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: graph-service

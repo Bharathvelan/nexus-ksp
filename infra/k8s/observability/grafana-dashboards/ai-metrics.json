@@ -1,0 +1,73 @@
+{
+  "title": "AI Intelligence Metrics",
+  "tags": ["nexus-ksp", "ai"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "LLM Query Volume per Hour",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(increase(http_requests_total{app=\"llm-orchestrator\"}[1h]))",
+          "legendFormat": "Queries/Hour"
+        }
+      ]
+    },
+    {
+      "title": "Average Response Latency (LLM)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(http_request_duration_seconds_sum{app=\"llm-orchestrator\"}[5m])) / sum(rate(http_request_duration_seconds_count{app=\"llm-orchestrator\"}[5m]))",
+          "legendFormat": "Avg Latency (s)"
+        }
+      ]
+    },
+    {
+      "title": "Intent Classification Distribution",
+      "type": "piechart",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(llm_intent_classification_total[1h])) by (intent)",
+          "legendFormat": "{{intent}}"
+        }
+      ]
+    },
+    {
+      "title": "Redis Cache Hit Rate",
+      "type": "gauge",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))",
+          "legendFormat": "Hit Rate"
+        }
+      ]
+    },
+    {
+      "title": "Model Confidence Score Distribution",
+      "type": "heatmap",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(llm_confidence_score_bucket[5m])) by (le)",
+          "legendFormat": "{{le}}"
+        }
+      ]
+    },
+    {
+      "title": "RLHF Feedback Satisfaction Rate",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(llm_feedback_total{rating=\"positive\"}[1h])) / sum(rate(llm_feedback_total[1h]))",
+          "legendFormat": "Satisfaction Rate"
+        }
+      ]
+    }
+  ]
+}

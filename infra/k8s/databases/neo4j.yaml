@@ -1,0 +1,120 @@
+###############################################################################
+# Neo4j StatefulSet (3 Replicas Causal Cluster)
+###############################################################################
+apiVersion: v1
+kind: Service
+metadata:
+  name: neo4j-headless
+  namespace: nexus-ksp
+  labels:
+    app: neo4j
+spec:
+  clusterIP: None
+  ports:
+    - port: 7687
+      name: bolt
+    - port: 7474
+      name: http
+    - port: 7473
+      name: https
+    - port: 6000
+      name: cluster
+    - port: 5000
+      name: routing
+  selector:
+    app: neo4j
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: neo4j
+  namespace: nexus-ksp
+  labels:
+    app: neo4j
+spec:
+  serviceName: neo4j-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: neo4j
+  template:
+    metadata:
+      labels:
+        app: neo4j
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: neo4j
+              topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: role
+                    operator: In
+                    values:
+                      - data
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: data
+          effect: NoSchedule
+      containers:
+        - name: neo4j
+          image: neo4j:5.16.0-enterprise
+          ports:
+            - containerPort: 7687
+              name: bolt
+            - containerPort: 7474
+              name: http
+            - containerPort: 6000
+              name: cluster
+            - containerPort: 5000
+              name: routing
+          env:
+            - name: NEO4J_ACCEPT_LICENSE_AGREEMENT
+              value: "yes"
+            - name: NEO4J_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: graph-service-secrets
+                  key: neo4j-auth
+            - name: NEO4J_server_memory_heap_initial__size
+              value: "4G"
+            - name: NEO4J_server_memory_heap_max__size
+              value: "4G"
+            - name: NEO4J_server_memory_pagecache_size
+              value: "4G"
+            - name: NEO4J_dbms_mode
+              value: "CORE"
+            - name: NEO4J_dbms_default__listen__address
+              value: "0.0.0.0"
+            - name: NEO4J_dbms_cluster_discovery_endpoints
+              value: "neo4j-0.neo4j-headless.nexus-ksp.svc.cluster.local:5000,neo4j-1.neo4j-headless.nexus-ksp.svc.cluster.local:5000,neo4j-2.neo4j-headless.nexus-ksp.svc.cluster.local:5000"
+            - name: NEO4J_server_routing_advertised__address
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          volumeMounts:
+            - name: neo4j-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 2000m
+              memory: 10Gi
+            limits:
+              cpu: 4000m
+              memory: 16Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: neo4j-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        storageClassName: "ebs-sc"
+        resources:
+          requests:
+            storage: 500Gi

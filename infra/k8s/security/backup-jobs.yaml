@@ -1,0 +1,76 @@
+###############################################################################
+# Security — Backup CronJobs
+###############################################################################
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: neo4j-backup
+  namespace: nexus-ksp
+spec:
+  schedule: "0 2 * * *" # Run at 2 AM every day
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backup-sa
+          containers:
+          - name: neo4j-backup
+            image: amazon/aws-cli:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Starting Neo4j backup..."
+              DATE=$(date +%Y-%m-%d-%H-%M-%S)
+              BACKUP_FILE="/tmp/neo4j-backup-$DATE.dump"
+              
+              # Execute backup inside Neo4j pod
+              kubectl exec neo4j-0 -n nexus-ksp -- neo4j-admin database backup --to-path=/data/backups neo4j
+              
+              # Copy from pod to local tmp
+              kubectl cp nexus-ksp/neo4j-0:/data/backups/neo4j.backup $BACKUP_FILE
+              
+              # Upload to S3
+              aws s3 cp $BACKUP_FILE s3://nexus-ksp-audit-archive/backups/neo4j/neo4j-$DATE.dump
+              
+              echo "Backup completed successfully!"
+            env:
+              - name: AWS_REGION
+                value: "ap-south-1"
+          restartPolicy: OnFailure
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qdrant-snapshot
+  namespace: nexus-ksp
+spec:
+  schedule: "0 3 * * *" # Run at 3 AM every day
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: backup-sa
+          containers:
+          - name: qdrant-snapshot
+            image: curlimages/curl:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Starting Qdrant snapshot..."
+              curl -X POST "http://qdrant:6333/collections/profiles/snapshots"
+              echo "Snapshot triggered successfully!"
+          restartPolicy: OnFailure
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-sa
+  namespace: nexus-ksp
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/nexus-ksp-backup-role"

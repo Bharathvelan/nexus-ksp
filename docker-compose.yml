@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - llm-orchestrator
+      - pattern-engine
+      - graph-service
+      - profiling-service
+
+  llm-orchestrator:
+    build:
+      context: ./services/llm-orchestrator
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+
+  pattern-engine:
+    build:
+      context: ./services/pattern-engine
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+
+  graph-service:
+    build:
+      context: ./services/graph-service
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+
+  profiling-service:
+    build:
+      context: ./services/profiling-service
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
+
+  audit-logger:
+    build:
+      context: ./services/audit-logger
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+
+  alert-service:
+    build:
+      context: ./services/alert-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+
+  report-exporter:
+    build:
+      context: ./services/report-exporter
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3000"

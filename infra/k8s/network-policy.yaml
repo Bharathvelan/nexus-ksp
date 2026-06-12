@@ -1,0 +1,205 @@
+###############################################################################
+# NEXUS-KSP — Network Policies
+# Default deny-all + per-service allow rules
+###############################################################################
+
+# ---------------------------------------------------------------------------
+# Default: Deny ALL ingress to namespace
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: nexus-ksp
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# ---------------------------------------------------------------------------
+# Allow: web → api-gateway
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-to-api-gateway
+  namespace: nexus-ksp
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: web
+      ports:
+        - port: 8000
+---
+# ---------------------------------------------------------------------------
+# Allow: ALB (ingress controller) → web + api-gateway
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-web
+  namespace: nexus-ksp
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 3000
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-api-gateway
+  namespace: nexus-ksp
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 8000
+---
+# ---------------------------------------------------------------------------
+# Allow: api-gateway → llm-orchestrator, graph-service, pattern-engine,
+#        profiling-service, alert-service, report-exporter
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-gateway-to-services
+  namespace: nexus-ksp
+spec:
+  podSelector:
+    matchLabels:
+      role: backend-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+---
+# ---------------------------------------------------------------------------
+# Allow: llm-orchestrator → graph-service (for graph queries)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-llm-to-graph
+  namespace: nexus-ksp
+spec:
+  podSelector:
+    matchLabels:
+      app: graph-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: llm-orchestrator
+      ports:
+        - port: 8002
+---
+# ---------------------------------------------------------------------------
+# Allow: pattern-engine → alert-service (triggers alerts)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pattern-to-alert
+  namespace: nexus-ksp
+spec:
+  podSelector:
+    matchLabels:
+      app: alert-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: pattern-engine
+      ports:
+        - port: 8005
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 8005
+---
+# ---------------------------------------------------------------------------
+# Allow: all services → audit-logger (write audit events)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-to-audit-logger
+  namespace: nexus-ksp
+spec:
+  podSelector:
+    matchLabels:
+      app: audit-logger
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              role: backend-service
+      ports:
+        - port: 8006
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 8006
+---
+# ---------------------------------------------------------------------------
+# Allow: Prometheus scraping all pods (monitoring namespace)
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: nexus-ksp
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8080
+        - port: 9090
+        - port: 9091

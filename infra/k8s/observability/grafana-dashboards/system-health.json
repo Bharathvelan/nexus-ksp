@@ -1,0 +1,51 @@
+{
+  "title": "System Health",
+  "tags": ["nexus-ksp"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "Service Health Status",
+      "type": "stat",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "up{namespace=\"nexus-ksp\"}",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "title": "Request Rate per Service",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{namespace=\"nexus-ksp\"}[5m])) by (app)",
+          "legendFormat": "{{app}}"
+        }
+      ]
+    },
+    {
+      "title": "Error Rate per Service",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{namespace=\"nexus-ksp\", status=~\"5..\"}[5m])) by (app) / sum(rate(http_requests_total{namespace=\"nexus-ksp\"}[5m])) by (app)",
+          "legendFormat": "{{app}}"
+        }
+      ]
+    },
+    {
+      "title": "P95 Latency",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace=\"nexus-ksp\"}[5m])) by (le, app))",
+          "legendFormat": "{{app}}"
+        }
+      ]
+    }
+  ]
+}

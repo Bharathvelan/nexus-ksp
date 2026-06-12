@@ -1,0 +1,36 @@
+###############################################################################
+# Security — Falco Runtime Threat Detection
+###############################################################################
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-custom-rules
+  namespace: nexus-ksp
+data:
+  custom_rules.yaml: |
+    - rule: Write to Sensitive Path
+      desc: Detect writes to /etc or /bin
+      condition: >
+        open_write and fd.name startswith "/etc" or fd.name startswith "/bin"
+      output: >
+        File write to sensitive path (user=%user.name file=%fd.name command=%proc.cmdline)
+      priority: WARNING
+      tags: [filesystem, security]
+
+    - rule: Privilege Escalation Attempt
+      desc: Detect execution of setuid binaries
+      condition: >
+        spawned_process and proc.is_exe_setuid=true and proc.name in (su, sudo)
+      output: >
+        Privilege escalation attempted (user=%user.name command=%proc.cmdline)
+      priority: CRITICAL
+      tags: [process, security]
+
+    - rule: Unexpected Network Connection
+      desc: Detect unexpected outbound connections
+      condition: >
+        outbound and not (fd.sip in (10.0.0.0/8) or fd.sport in (443, 80, 5432, 6379, 9092, 7687))
+      output: >
+        Unexpected outbound network connection (user=%user.name command=%proc.cmdline dest=%fd.sip:%fd.sport)
+      priority: WARNING
+      tags: [network, security]

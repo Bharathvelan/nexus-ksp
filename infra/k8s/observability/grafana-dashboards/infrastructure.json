@@ -1,0 +1,62 @@
+{
+  "title": "Infrastructure",
+  "tags": ["nexus-ksp", "infra"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "title": "EKS Node CPU Utilization",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "title": "EKS Node Memory Utilization",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "title": "Pod Count per Deployment",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(kube_deployment_status_replicas{namespace=\"nexus-ksp\"}) by (deployment)",
+          "legendFormat": "{{deployment}}"
+        }
+      ]
+    },
+    {
+      "title": "Database Connections",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "pg_stat_activity_count",
+          "legendFormat": "Connections"
+        }
+      ]
+    },
+    {
+      "title": "Kafka Consumer Lag",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(kafka_consumergroup_lag) by (consumergroup)",
+          "legendFormat": "{{consumergroup}}"
+        }
+      ]
+    }
+  ]
+}
